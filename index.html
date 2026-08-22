@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SYSMON // Live Machine Readout</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root{
+    --bg: #06090a;
+    --panel: #0b1210;
+    --line: #17231f;
+    --phosphor: #5eff9e;
+    --phosphor-dim: #2a8f5c;
+    --amber: #ffb454;
+    --red: #ff5f56;
+    --text: #c9e8d6;
+    --text-dim: #5b7a6c;
+  }
+
+  *{ box-sizing: border-box; margin:0; padding:0; }
+
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    min-height: 100vh;
+    padding: 28px 20px 60px;
+    background-image:
+      radial-gradient(circle at 20% -10%, rgba(94,255,158,0.05), transparent 40%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px);
+  }
+
+  .wrap{ max-width: 1180px; margin: 0 auto; }
+
+  header{
+    display:flex; justify-content:space-between; align-items:flex-end;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 16px; margin-bottom: 22px;
+    flex-wrap: wrap; gap: 12px;
+  }
+  .title-block .eyebrow{
+    font-size: 11px; letter-spacing: 3px; color: var(--phosphor-dim);
+    text-transform: uppercase; margin-bottom: 6px;
+  }
+  .title-block h1{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px; font-weight: 700; color: var(--phosphor);
+    letter-spacing: 1px;
+    text-shadow: 0 0 18px rgba(94,255,158,0.25);
+  }
+  .status{
+    display:flex; align-items:center; gap:8px;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .dot{
+    width:8px; height:8px; border-radius:50%; background: var(--text-dim);
+    box-shadow: none;
+  }
+  .dot.live{ background: var(--phosphor); box-shadow: 0 0 8px var(--phosphor); animation: pulse 1.6s infinite; }
+  .dot.err{ background: var(--red); box-shadow: 0 0 8px var(--red); }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .card{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 16px 18px 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before{
+    content:''; position:absolute; top:0; left:0; right:0; height:2px;
+    background: linear-gradient(90deg, var(--phosphor), transparent);
+    opacity: 0.5;
+  }
+  .card .label{
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 10px;
+    display:flex; justify-content: space-between; align-items:center;
+  }
+  .card .bignum{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 34px; font-weight: 700; color: var(--phosphor);
+    line-height: 1;
+    display:flex; align-items:baseline; gap:4px;
+  }
+  .card .bignum .unit{ font-size: 15px; color: var(--text-dim); font-weight: 500; }
+  .card .subline{ font-size: 12px; color: var(--text-dim); margin-top: 8px; }
+
+  .bar-track{
+    width:100%; height:6px; background: #0f1a16; border-radius: 3px;
+    margin-top: 12px; overflow:hidden; border: 1px solid var(--line);
+  }
+  .bar-fill{
+    height: 100%; background: linear-gradient(90deg, var(--phosphor-dim), var(--phosphor));
+    width: 0%; transition: width 0.4s ease;
+  }
+  .bar-fill.warn{ background: linear-gradient(90deg, #b98a2e, var(--amber)); }
+  .bar-fill.crit{ background: linear-gradient(90deg, #9c3a36, var(--red)); }
+
+  .cores{
+    display:grid; grid-template-columns: repeat(auto-fill, minmax(8px,1fr));
+    gap: 3px; margin-top: 12px;
+  }
+  .core-bar{
+    height: 26px; background: #0f1a16; border-radius: 2px; position:relative; overflow:hidden;
+    border: 1px solid var(--line);
+  }
+  .core-bar span{
+    position:absolute; bottom:0; left:0; right:0;
+    background: var(--phosphor-dim); transition: height 0.4s ease;
+  }
+
+  canvas.spark{ width: 100%; height: 46px; margin-top: 10px; display:block; }
+
+  .wide{ grid-column: span 2; }
+  @media (max-width: 640px){ .wide{ grid-column: span 1; } }
+
+  footer{
+    margin-top: 24px; font-size: 11px; color: var(--text-dim);
+    text-align:center; letter-spacing: 1px;
+  }
+
+  .disk-row{
+    display:flex; justify-content: space-between; align-items:center;
+    gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line);
+  }
+  .disk-row:last-child{ border-bottom: none; }
+  .disk-info{ flex: 1; min-width: 0; }
+  .disk-info .drive-name{
+    display:flex; align-items:center; gap:8px;
+    font-size: 14px; color: var(--text); font-weight: 600;
+  }
+  .type-chip{
+    font-size: 10px; letter-spacing: 1px; padding: 2px 7px;
+    border-radius: 3px; text-transform: uppercase; font-weight: 700;
+  }
+  .type-chip.ssd{ background: rgba(94,255,158,0.15); color: var(--phosphor); border: 1px solid var(--phosphor-dim); }
+  .type-chip.hdd{ background: rgba(255,180,84,0.15); color: var(--amber); border: 1px solid #b98a2e; }
+  .type-chip.unknown{ background: rgba(150,150,150,0.1); color: var(--text-dim); border: 1px solid var(--line); }
+  .disk-info .disk-sub{ font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+  .disk-percent{
+    font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700;
+    color: var(--phosphor); min-width: 54px; text-align: right;
+  }
+  .disk-row .bar-track{ width: 140px; margin-top: 0; flex-shrink: 0; }
+
+  .gpu-empty{
+    color: var(--text-dim); font-size: 13px; line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="title-block">
+      <div class="eyebrow">Local Machine // Real-Time Telemetry</div>
+      <h1>SYSMON_</h1>
+    </div>
+    <div class="status">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <div class="card">
+      <div class="label"><span>CPU Load</span><span id="cpuFreq">--</span></div>
+      <div class="bignum" id="cpuPercent">--<span class="unit">%</span></div>
+      <div class="bar-track"><div class="bar-fill" id="cpuBar"></div></div>
+      <div class="subline" id="cpuCores">-- cores</div>
+    </div>
+
+    <div class="card">
+      <div class="label"><span>RAM (Memory)</span><span id="ramSwap">SWAP --</span></div>
+      <div class="bignum" id="ramPercent">--<span class="unit">%</span></div>
+      <div class="bar-track"><div class="bar-fill" id="ramBar"></div></div>
+      <div class="subline" id="ramUsage">-- / -- GB</div>
+    </div>
+
+    <div class="card wide" id="diskCardWrap">
+      <div class="label"><span>Storage</span><span id="diskCount"></span></div>
+      <div id="diskList"></div>
+    </div>
+
+    <div class="card">
+      <div class="label"><span>Network</span><span></span></div>
+      <div class="bignum" id="netDown">--<span class="unit">KB/s</span></div>
+      <div class="subline" id="netUp">Up: -- KB/s</div>
+    </div>
+
+    <div class="card wide">
+      <div class="label"><span>Per-Core Load</span><span id="coreCount"></span></div>
+      <div class="cores" id="coreGrid"></div>
+    </div>
+
+    <div class="card wide">
+      <div class="label"><span>GPU / VRAM</span><span id="gpuTemp"></span></div>
+      <div id="gpuContent" class="gpu-empty">Checking for GPU...</div>
+    </div>
+
+    <div class="card wide">
+      <div class="label"><span>CPU Load — last 60s</span></div>
+      <canvas class="spark" id="cpuSpark"></canvas>
+    </div>
+
+    <div class="card wide">
+      <div class="label"><span>RAM Usage — last 60s</span></div>
+      <canvas class="spark" id="ramSpark"></canvas>
+    </div>
+
+  </div>
+
+  <footer>psutil + FastAPI WebSocket &nbsp;·&nbsp; refresh: 1s &nbsp;·&nbsp; local machine only</footer>
+</div>
+
+<script>
+const WS_URL = `ws://${location.hostname || 'localhost'}:8000/ws`;
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+
+const cpuHistory = [];
+const ramHistory = [];
+const MAX_POINTS = 60;
+
+function setBarClass(el, percent){
+  el.classList.remove('warn','crit');
+  if(percent >= 85) el.classList.add('crit');
+  else if(percent >= 60) el.classList.add('warn');
+}
+
+function drawSpark(canvas, data, color){
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = canvas.clientWidth * devicePixelRatio;
+  const h = canvas.height = canvas.clientHeight * devicePixelRatio;
+  ctx.clearRect(0,0,w,h);
+  if(data.length < 2) return;
+
+  ctx.beginPath();
+  data.forEach((val, i) => {
+    const x = (i / (MAX_POINTS - 1)) * w;
+    const y = h - (val / 100) * h;
+    if(i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5 * devicePixelRatio;
+  ctx.stroke();
+
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = color.replace('rgb', 'rgba').replace(')', ', 0.12)');
+  ctx.fill();
+}
+
+function renderCores(perCore){
+  const grid = document.getElementById('coreGrid');
+  document.getElementById('coreCount').textContent = perCore.length + ' logical';
+  if(grid.children.length !== perCore.length){
+    grid.innerHTML = perCore.map(() => '<div class="core-bar"><span></span></div>').join('');
+  }
+  [...grid.children].forEach((bar, i) => {
+    bar.querySelector('span').style.height = perCore[i] + '%';
+  });
+}
+
+function renderDisks(disks){
+  const wrap = document.getElementById('diskList');
+  document.getElementById('diskCount').textContent = disks.length + (disks.length === 1 ? ' drive' : ' drives');
+
+  wrap.innerHTML = disks.map(d => {
+    const typeClass = d.type === 'SSD' ? 'ssd' : (d.type === 'HDD' ? 'hdd' : 'unknown');
+    const label = d.mountpoint.replace(/[\\/]$/, '') || d.mountpoint;
+    let barClass = '';
+    if(d.percent >= 85) barClass = 'crit';
+    else if(d.percent >= 60) barClass = 'warn';
+    return `
+      <div class="disk-row">
+        <div class="disk-info">
+          <div class="drive-name">
+            ${label}
+            <span class="type-chip ${typeClass}">${d.type}</span>
+          </div>
+          <div class="disk-sub">${d.used_gb} / ${d.total_gb} GB used &middot; ${d.fstype}</div>
+        </div>
+        <div class="bar-track"><div class="bar-fill ${barClass}" style="width:${d.percent}%"></div></div>
+        <div class="disk-percent">${d.percent.toFixed(0)}%</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderGpu(gpus){
+  const el = document.getElementById('gpuContent');
+  const tempEl = document.getElementById('gpuTemp');
+  if(!gpus || gpus.length === 0){
+    el.innerHTML = 'No dedicated GPU detected (or pynvml not installed). Integrated graphics are not exposed by NVML — this panel lights up on a machine with an NVIDIA GPU.';
+    tempEl.textContent = '';
+    return;
+  }
+  tempEl.textContent = gpus[0].temp_c ? gpus[0].temp_c + '°C' : '';
+  el.innerHTML = gpus.map(g => `
+    <div style="margin-bottom:10px;">
+      <div style="color:var(--phosphor); font-size:13px; margin-bottom:6px;">${g.name}</div>
+      <div style="display:flex; gap:18px; font-size:12px; color:var(--text-dim);">
+        <span>Load: <b style="color:var(--text)">${g.load_percent}%</b></span>
+        <span>VRAM: <b style="color:var(--text)">${g.vram_used_mb} / ${g.vram_total_mb} MB</b></span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(g.vram_used_mb/g.vram_total_mb*100).toFixed(1)}%"></div></div>
+    </div>
+  `).join('');
+}
+
+function connect(){
+  const ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    statusDot.className = 'dot live';
+    statusText.textContent = 'LIVE';
+  };
+
+  ws.onclose = () => {
+    statusDot.className = 'dot err';
+    statusText.textContent = 'DISCONNECTED — retrying...';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => { ws.close(); };
+
+  ws.onmessage = (event) => {
+    const d = JSON.parse(event.data);
+
+    // CPU
+    document.getElementById('cpuPercent').innerHTML = d.cpu.percent.toFixed(1) + '<span class="unit">%</span>';
+    document.getElementById('cpuFreq').textContent = d.cpu.freq_mhz ? (d.cpu.freq_mhz/1000).toFixed(2) + ' GHz' : '';
+    document.getElementById('cpuCores').textContent = `${d.cpu.cores_physical} physical / ${d.cpu.cores_logical} logical` + (d.cpu.temp_c ? ` · ${d.cpu.temp_c.toFixed(0)}°C` : '');
+    const cpuBar = document.getElementById('cpuBar');
+    cpuBar.style.width = d.cpu.percent + '%';
+    setBarClass(cpuBar, d.cpu.percent);
+    renderCores(d.cpu.per_core);
+
+    // RAM
+    document.getElementById('ramPercent').innerHTML = d.ram.percent.toFixed(1) + '<span class="unit">%</span>';
+    document.getElementById('ramUsage').textContent = `${d.ram.used_gb} / ${d.ram.total_gb} GB used`;
+    document.getElementById('ramSwap').textContent = 'SWAP ' + d.swap.percent.toFixed(0) + '%';
+    const ramBar = document.getElementById('ramBar');
+    ramBar.style.width = d.ram.percent + '%';
+    setBarClass(ramBar, d.ram.percent);
+
+    // Storage (RAM already labeled above; each drive gets its own SSD/HDD label)
+    renderDisks(d.disk);
+
+    // Network
+    document.getElementById('netDown').innerHTML = d.network.download_kbps.toFixed(1) + '<span class="unit">KB/s</span>';
+    document.getElementById('netUp').textContent = 'Up: ' + d.network.upload_kbps.toFixed(1) + ' KB/s';
+
+    // GPU
+    renderGpu(d.gpu);
+
+    // History + sparklines
+    cpuHistory.push(d.cpu.percent);
+    ramHistory.push(d.ram.percent);
+    if(cpuHistory.length > MAX_POINTS) cpuHistory.shift();
+    if(ramHistory.length > MAX_POINTS) ramHistory.shift();
+
+    drawSpark(document.getElementById('cpuSpark'), cpuHistory, 'rgb(94,255,158)');
+    drawSpark(document.getElementById('ramSpark'), ramHistory, 'rgb(255,180,84)');
+  };
+}
+
+connect();
+window.addEventListener('resize', () => {
+  drawSpark(document.getElementById('cpuSpark'), cpuHistory, 'rgb(94,255,158)');
+  drawSpark(document.getElementById('ramSpark'), ramHistory, 'rgb(255,180,84)');
+});
+</script>
+</body>
+</html>
